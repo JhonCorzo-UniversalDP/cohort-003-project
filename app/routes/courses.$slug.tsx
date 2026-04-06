@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug";
@@ -13,6 +13,11 @@ import {
   getLessonProgressForCourse,
   getNextIncompleteLesson,
 } from "~/services/progressService";
+import {
+  canUserRate,
+  getUserRating,
+  getAverageRating,
+} from "~/services/ratingService";
 import { getCurrentUserId } from "~/lib/session";
 import { LessonProgressStatus } from "~/db/schema";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
@@ -33,6 +38,7 @@ import {
   Clock,
   Pencil,
   PlayCircle,
+  Star,
   Users,
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
@@ -42,6 +48,116 @@ import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
 import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo } from "~/lib/ppp";
+
+function StarRatingDisplay({
+  rating,
+  count,
+  size = "sm",
+}: {
+  rating: number;
+  count: number;
+  size?: "sm" | "lg";
+}) {
+  const starSize = size === "lg" ? "size-5" : "size-4";
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`${starSize} ${
+              star <= Math.round(rating)
+                ? "fill-yellow-400 text-yellow-400"
+                : "fill-muted text-muted-foreground/30"
+            }`}
+          />
+        ))}
+      </div>
+      <span
+        className={`font-medium ${size === "lg" ? "text-base" : "text-sm"}`}
+      >
+        {rating > 0 ? rating.toFixed(1) : "—"}
+      </span>
+      <span
+        className={`text-muted-foreground ${size === "lg" ? "text-sm" : "text-xs"}`}
+      >
+        ({count} {count === 1 ? "rating" : "ratings"})
+      </span>
+    </div>
+  );
+}
+
+function InteractiveStarRating({
+  courseId,
+  initialRating,
+}: {
+  courseId: number;
+  initialRating: number | null;
+}) {
+  const [rating, setRating] = useState(initialRating ?? 0);
+  const [hoveredStar, setHoveredStar] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleRate(star: number) {
+    setSubmitting(true);
+    setRating(star);
+    try {
+      const response = await fetch("/api/course-rating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ courseId, rating: star }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to submit rating");
+      }
+      toast.success(
+        initialRating ? "Rating updated!" : "Thanks for rating this course!",
+      );
+    } catch {
+      setRating(initialRating ?? 0);
+      toast.error("Failed to submit rating. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-yellow-400/30 bg-gradient-to-br from-yellow-50 to-amber-50 px-6 py-5 shadow-sm dark:from-yellow-950/20 dark:to-amber-950/20">
+      <div className="text-sm font-semibold text-yellow-800 dark:text-yellow-200">
+        {rating > 0 ? "Your Rating" : "Rate this Course"}
+      </div>
+      <div
+        className="flex gap-1"
+        onMouseLeave={() => setHoveredStar(0)}
+      >
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            disabled={submitting}
+            className="rounded-md p-1 transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 disabled:opacity-50"
+            onMouseEnter={() => setHoveredStar(star)}
+            onClick={() => handleRate(star)}
+            aria-label={`Rate ${star} star${star > 1 ? "s" : ""}`}
+          >
+            <Star
+              className={`size-8 transition-colors ${
+                star <= (hoveredStar || rating)
+                  ? "fill-yellow-400 text-yellow-400"
+                  : "fill-muted text-muted-foreground/30"
+              }`}
+            />
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {rating > 0
+          ? "Click a star to change your rating"
+          : "Click a star to rate"}
+      </p>
+    </div>
+  );
+}
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Course";
@@ -71,6 +187,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   let progress = 0;
   let lessonProgressMap: Record<number, string> = {};
   let nextLessonId: number | null = null;
+  let canRate = false;
+  let userRating: number | null = null;
 
   if (currentUserId) {
     enrolled = isUserEnrolled(currentUserId, course.id);
@@ -88,8 +206,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
       const nextLesson = getNextIncompleteLesson(currentUserId, course.id);
       nextLessonId = nextLesson?.id ?? null;
+
+      const eligibility = canUserRate(currentUserId, course.id);
+      canRate = eligibility.allowed;
+      const existingRating = getUserRating(currentUserId, course.id);
+      userRating = existingRating?.rating ?? null;
     }
   }
+
+  const averageRating = getAverageRating(course.id);
 
   // Render sales copy from Markdown to HTML server-side
   const salesCopyHtml = courseWithDetails.salesCopy
@@ -113,6 +238,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     currentUserId,
     pppPrice,
     tierInfo,
+    canRate,
+    userRating,
+    averageRating,
   };
 }
 
@@ -181,6 +309,9 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     currentUserId,
     pppPrice,
     tierInfo,
+    canRate,
+    userRating,
+    averageRating,
   } = loaderData;
   const isInstructor = currentUserId === course.instructorId;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -301,6 +432,15 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
         <p className="mb-4 text-lg text-muted-foreground">
           {course.description}
         </p>
+        {averageRating.count > 0 && (
+          <div className="mb-3">
+            <StarRatingDisplay
+              rating={averageRating.average}
+              count={averageRating.count}
+              size="lg"
+            />
+          </div>
+        )}
         <div className="flex items-center gap-4 text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <UserAvatar
@@ -407,6 +547,12 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                         </Link>
                       ) : null;
                     })()}
+                  {canRate && (
+                    <InteractiveStarRating
+                      courseId={course.id}
+                      initialRating={userRating}
+                    />
+                  )}
                   <Link to={teamPurchaseLink}>
                     <Button variant="outline" className="w-full">
                       <Users className="mr-2 size-4" />
