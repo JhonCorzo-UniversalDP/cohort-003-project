@@ -87,15 +87,21 @@ describe("canUserRate", () => {
     expect(result.reason).toMatch(/enrolled/i);
   });
 
-  it("rejects users who haven't purchased the course", () => {
+  it("allows users enrolled via coupon (no direct purchase)", () => {
+    // Enroll without a purchase record (coupon redemption path)
     testDb
       .insert(schema.enrollments)
       .values({ userId: base.user.id, courseId: base.course.id })
       .run();
+    const { lessons } = createModuleWithLessons(base.course.id, 4);
+    completeLessons(base.user.id, [
+      lessons[0].id,
+      lessons[1].id,
+      lessons[2].id,
+    ]);
 
     const result = canUserRate(base.user.id, base.course.id);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toMatch(/purchased/i);
+    expect(result.allowed).toBe(true);
   });
 
   it("rejects users with 50% or less progress", () => {

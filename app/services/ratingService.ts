@@ -3,7 +3,6 @@ import { db } from "~/db";
 import {
   courseRatings,
   enrollments,
-  purchases,
   users,
   UserRole,
 } from "~/db/schema";
@@ -90,21 +89,6 @@ export function canUserRate(userId: number, courseId: number) {
     return {
       allowed: false as const,
       reason: "You must be enrolled in this course to rate it",
-    };
-  }
-
-  const purchase = db
-    .select()
-    .from(purchases)
-    .where(
-      and(eq(purchases.userId, userId), eq(purchases.courseId, courseId)),
-    )
-    .get();
-
-  if (!purchase) {
-    return {
-      allowed: false as const,
-      reason: "You must have purchased this course to rate it",
     };
   }
 
