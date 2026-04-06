@@ -198,7 +198,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
     if (enrolled) {
       progress = calculateProgress(currentUserId, course.id, false, false);
-      bookmarkedLessonIds = getBookmarkedLessonIds(currentUserId, course.id);
 
       const progressRecords = getLessonProgressForCourse(
         currentUserId,
@@ -215,6 +214,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       canRate = eligibility.allowed;
       const existingRating = getUserRating(currentUserId, course.id);
       userRating = existingRating?.rating ?? null;
+
+      bookmarkedLessonIds = getBookmarkedLessonIds({
+        userId: currentUserId,
+        courseId: course.id,
+      });
     }
   }
 
@@ -644,19 +648,17 @@ function CourseContent({
             return (
             <Card key={mod.id}>
               <CardHeader>
-                <div className="flex items-center gap-2">
-                  <h3 className="flex-1 font-semibold">
-                    <Link
-                      to={`/courses/${course.slug}/${mod.id}`}
-                      className="hover:underline"
-                    >
-                      {mod.title}
-                    </Link>
-                  </h3>
+                <h3 className="flex items-center gap-2 font-semibold">
+                  <Link
+                    to={`/courses/${course.slug}/${mod.id}`}
+                    className="hover:underline"
+                  >
+                    {mod.title}
+                  </Link>
                   {moduleHasBookmark && (
                     <Bookmark className="size-3.5 shrink-0 fill-amber-500 text-amber-500" />
                   )}
-                </div>
+                </h3>
                 <p className="text-sm text-muted-foreground">
                   {mod.lessons.length} lessons
                 </p>
@@ -669,6 +671,9 @@ function CourseContent({
                       status === LessonProgressStatus.Completed;
                     const isLessonInProgress =
                       status === LessonProgressStatus.InProgress;
+                    const isLessonBookmarked = bookmarkedLessonIds.has(
+                      lesson.id
+                    );
 
                     if (isInstructor) {
                       return (
@@ -721,7 +726,7 @@ function CourseContent({
                                 )}
                               </span>
                             )}
-                            {bookmarkedLessonIds.has(lesson.id) && (
+                            {isLessonBookmarked && (
                               <Bookmark className="size-4 shrink-0 fill-amber-500 text-amber-500" />
                             )}
                           </Link>
@@ -748,7 +753,7 @@ function CourseContent({
                 </ul>
               </CardContent>
             </Card>
-          );
+            );
           })}
         </div>
       )}

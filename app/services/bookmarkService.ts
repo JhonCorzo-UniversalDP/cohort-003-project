@@ -2,31 +2,34 @@ import { eq, and } from "drizzle-orm";
 import { db } from "~/db";
 import { lessonBookmarks, lessons, modules } from "~/db/schema";
 
-export function isLessonBookmarked(userId: number, lessonId: number): boolean {
+export function isLessonBookmarked(opts: {
+  userId: number;
+  lessonId: number;
+}): boolean {
   const result = db
-    .select({ id: lessonBookmarks.id })
+    .select()
     .from(lessonBookmarks)
     .where(
       and(
-        eq(lessonBookmarks.userId, userId),
-        eq(lessonBookmarks.lessonId, lessonId),
+        eq(lessonBookmarks.userId, opts.userId),
+        eq(lessonBookmarks.lessonId, opts.lessonId),
       ),
     )
     .get();
   return !!result;
 }
 
-export function toggleBookmark(
-  userId: number,
-  lessonId: number,
-): { bookmarked: boolean } {
+export function toggleBookmark(opts: {
+  userId: number;
+  lessonId: number;
+}): { bookmarked: boolean } {
   const existing = db
-    .select({ id: lessonBookmarks.id })
+    .select()
     .from(lessonBookmarks)
     .where(
       and(
-        eq(lessonBookmarks.userId, userId),
-        eq(lessonBookmarks.lessonId, lessonId),
+        eq(lessonBookmarks.userId, opts.userId),
+        eq(lessonBookmarks.lessonId, opts.lessonId),
       ),
     )
     .get();
@@ -36,14 +39,16 @@ export function toggleBookmark(
     return { bookmarked: false };
   }
 
-  db.insert(lessonBookmarks).values({ userId, lessonId }).run();
+  db.insert(lessonBookmarks)
+    .values({ userId: opts.userId, lessonId: opts.lessonId })
+    .run();
   return { bookmarked: true };
 }
 
-export function getBookmarkedLessonIds(
-  userId: number,
-  courseId: number,
-): number[] {
+export function getBookmarkedLessonIds(opts: {
+  userId: number;
+  courseId: number;
+}): number[] {
   const results = db
     .select({ lessonId: lessonBookmarks.lessonId })
     .from(lessonBookmarks)
@@ -51,8 +56,8 @@ export function getBookmarkedLessonIds(
     .innerJoin(modules, eq(lessons.moduleId, modules.id))
     .where(
       and(
-        eq(lessonBookmarks.userId, userId),
-        eq(modules.courseId, courseId),
+        eq(lessonBookmarks.userId, opts.userId),
+        eq(modules.courseId, opts.courseId),
       ),
     )
     .all();
