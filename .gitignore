@@ -13,3 +13,5 @@
 .pnpm-store
 *.db-shm
 .claude/settings.local.json
+
+/course_files/
