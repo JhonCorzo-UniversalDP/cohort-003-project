@@ -18,6 +18,7 @@ import {
   getUserRating,
   getAverageRating,
 } from "~/services/ratingService";
+import { getBookmarkedLessonIds } from "~/services/bookmarkService";
 import { getCurrentUserId } from "~/lib/session";
 import { LessonProgressStatus } from "~/db/schema";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
@@ -32,6 +33,7 @@ import {
 } from "~/components/ui/tabs";
 import {
   AlertTriangle,
+  Bookmark,
   BookOpen,
   CheckCircle2,
   Circle,
@@ -189,12 +191,14 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   let nextLessonId: number | null = null;
   let canRate = false;
   let userRating: number | null = null;
+  let bookmarkedLessonIds: number[] = [];
 
   if (currentUserId) {
     enrolled = isUserEnrolled(currentUserId, course.id);
 
     if (enrolled) {
       progress = calculateProgress(currentUserId, course.id, false, false);
+      bookmarkedLessonIds = getBookmarkedLessonIds(currentUserId, course.id);
 
       const progressRecords = getLessonProgressForCourse(
         currentUserId,
@@ -241,6 +245,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     canRate,
     userRating,
     averageRating,
+    bookmarkedLessonIds,
   };
 }
 
@@ -312,6 +317,7 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     canRate,
     userRating,
     averageRating,
+    bookmarkedLessonIds,
   } = loaderData;
   const isInstructor = currentUserId === course.instructorId;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -495,6 +501,7 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
               enrolled={enrolled}
               isInstructor={isInstructor}
               lessonProgressMap={lessonProgressMap}
+              bookmarkedLessonIds={new Set(bookmarkedLessonIds)}
             />
           </div>
         </div>
@@ -601,6 +608,7 @@ function CourseContent({
   enrolled,
   isInstructor,
   lessonProgressMap,
+  bookmarkedLessonIds,
 }: {
   course: {
     id: number;
@@ -618,6 +626,7 @@ function CourseContent({
   enrolled: boolean;
   isInstructor: boolean;
   lessonProgressMap: Record<number, string>;
+  bookmarkedLessonIds: Set<number>;
 }) {
   return (
     <div>
@@ -628,17 +637,26 @@ function CourseContent({
         </p>
       ) : (
         <div className="space-y-4">
-          {course.modules.map((mod) => (
+          {course.modules.map((mod) => {
+            const moduleHasBookmark = mod.lessons.some((l) =>
+              bookmarkedLessonIds.has(l.id)
+            );
+            return (
             <Card key={mod.id}>
               <CardHeader>
-                <h3 className="font-semibold">
-                  <Link
-                    to={`/courses/${course.slug}/${mod.id}`}
-                    className="hover:underline"
-                  >
-                    {mod.title}
-                  </Link>
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="flex-1 font-semibold">
+                    <Link
+                      to={`/courses/${course.slug}/${mod.id}`}
+                      className="hover:underline"
+                    >
+                      {mod.title}
+                    </Link>
+                  </h3>
+                  {moduleHasBookmark && (
+                    <Bookmark className="size-3.5 shrink-0 fill-amber-500 text-amber-500" />
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {mod.lessons.length} lessons
                 </p>
@@ -703,6 +721,9 @@ function CourseContent({
                                 )}
                               </span>
                             )}
+                            {bookmarkedLessonIds.has(lesson.id) && (
+                              <Bookmark className="size-4 shrink-0 fill-amber-500 text-amber-500" />
+                            )}
                           </Link>
                         ) : (
                           <div className="flex items-center gap-3 px-3 py-2 text-sm">
@@ -727,7 +748,8 @@ function CourseContent({
                 </ul>
               </CardContent>
             </Card>
-          ))}
+          );
+          })}
         </div>
       )}
     </div>

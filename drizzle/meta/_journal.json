@@ -29,6 +29,20 @@
       "when": 1775439035678,
       "tag": "0003_shocking_toxin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1775443789498,
+      "tag": "0004_wakeful_luke_cage",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1775491595572,
+      "tag": "0005_zippy_black_panther",
+      "breakpoints": true
     }
   ]
 }
