@@ -7,3 +7,5 @@ const addUserToPost = (userId: string, postId: string) => {};
 // GOOD
 const addUserToPost = (opts: { userId: string; postId: string }) => {};
 ```
+
+When naming variables or methods always use the camelCase convention 
