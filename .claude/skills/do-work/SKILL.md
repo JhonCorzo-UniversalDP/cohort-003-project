@@ -21,6 +21,21 @@ If the task has not already been planned, create a plan for it.
 
 Work through the plan step by step.
 
+**Backend code: use red-green-refactor, one test at a time.**
+
+For every backend unit (service function, API route, utility), follow this loop before moving to the next piece:
+
+1. **Red** — write one test that covers the next behavior. Run `pnpm run test` and confirm it fails.
+2. **Green** — write the minimum implementation to make that test pass. Run `pnpm run test` and confirm it passes.
+3. **Refactor** — clean up if needed, re-run to stay green.
+4. Repeat for the next behavior.
+
+Work in tracer-bullet slices: pick the thinnest vertical behavior (e.g., "create a notification"), get it end-to-end green, then layer the next behavior on top.
+
+**Frontend code: skip TDD.**
+
+The test suite only covers backend code. Frontend code (components, loaders, UI) changes too fluidly during development for test-first to be practical — implement it directly.
+
 ### 4. Validate
 
 Run the feedback loops and fix any issues. Repeat until both pass cleanly.

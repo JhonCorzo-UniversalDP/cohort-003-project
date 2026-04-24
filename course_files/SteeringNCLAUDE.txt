@@ -1,0 +1,683 @@
+ ▐▛███▜▌   Claude Code v2.1.92
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Team
+  ▘▘ ▝▝    ~/ClaudeCourse/cohort-003-project
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ /memory 
+  ⎿  Opened memory file at ./CLAUDE.md
+
+     ▎ To use a different editor, set the $EDITOR or $VISUAL environment 
+     variable.
+
+❯ /memory 
+  ⎿  Cancelled memory editing
+
+❯ Unknown skill: dream                                                          
+
+❯ /memory 
+  ⎿  Cancelled memory editing
+
+❯ /memory 
+  ⎿  Cancelled memory editing
+
+❯ # Lesson Bookmarks Feature                                                    
+                                                                                
+## Context                                                                      
+                                                                                
+Students enrolled in a course need to bookmark lessons for later reference.     
+Bookmarks are private to each student, persist until manually removed (even     
+after lesson completion), and are inline-only (no dedicated bookmarks page).    
+                                                                                
+## Design Decisions                                                             
+                                                                                
+- **Toggle location:** Only on the lesson page itself (metadata row alongside   
+duration + GitHub link)                                                         
+- **Display in lists:** Passive indicator only (no toggle) in curriculum        
+sidebar and course detail page                                                  
+- **Icon position in lists:** Far right, after duration: `[status] [title] ...  
+[duration] [bookmark]`                                                          
+- **Empty state:** No icon shown for unbookmarked lessons — icon only appears   
+when bookmarked                                                                 
+- **Module indicator:** Single `Bookmark` icon on collapsed module header if    
+any child is bookmarked (no count)                                              
+                                                                                
+## 1. Database Schema                                                           
+                                                                                
+**File:** `app/db/schema.ts`                                                    
+                                                                                
+Add a `lessonBookmarks` table:                                                  
+                                                                                
+- `id` (integer, PK, auto-increment)                                            
+- `userId` (integer, FK → users.id, NOT NULL)                                   
+- `lessonId` (integer, FK → lessons.id, NOT NULL)                               
+- `createdAt` (text, NOT NULL, default now)                                     
+                                                                                
+**Migration:** `drizzle/0005_*.sql` — generated via `pnpm drizzle-kit generate` 
+                                                                                
+## 2. Bookmark Service                                                          
+                                                                                
+**New file:** `app/services/bookmarkService.ts`                                 
+                                                                                
+Follow the `ratingService.ts` pattern (`app/services/ratingService.ts`):        
+- `toggleBookmark(userId, lessonId)` — checks if bookmark exists; if yes,       
+deletes it; if no, inserts it. Returns `{ bookmarked: boolean }`                
+- `isLessonBookmarked(userId, lessonId)` — returns boolean (used on the lesson  
+page for current lesson)                                                        
+- `getBookmarkedLessonIds(userId, courseId)` — returns `number[]` of all        
+bookmarked lesson IDs in a course (joins `lessonBookmarks` → `lessons` →        
+`modules` to filter by course). Used in loaders to batch-load.                  
+                                                                                
+## 3. Route Changes — Lesson Viewer (`courses.$slug.lessons.$lessonId.tsx`)     
+                                                                                
+**Loader** (inside `if (enrolled)` block, ~line 169):                           
+                                                                                
+- Call `getBookmarkedLessonIds(currentUserId, course.id)` → return as           
+`bookmarkedLessonIds: number[]`                                                 
+- Call `isLessonBookmarked(currentUserId, lessonId)` → return as `isBookmarked: 
+ boolean`                                                                       
+                                                                                
+**Action** (~line 357, add new intent block):                                   
+                                                                                
+- `"toggle-bookmark"` intent — verify enrollment, call                          
+`toggleBookmark(currentUserId, lessonId)`, return `{ success: true, bookmarked: 
+ boolean }`                                                                     
+                                                                                
+**Lesson page UI** (metadata row, ~line 604):                                   
+                                                                                
+- After the GitHub button, add a bookmark toggle button using `useFetcher`      
+- `Bookmark` icon from lucide-react, `size-4`, filled amber when bookmarked,    
+outline muted when not                                                          
+- Button variant `outline` size `sm` to match the GitHub button style           
+                                                                                
+**CurriculumSidebar** (~line 775):                                              
+                                                                                
+- Accept `bookmarkedLessonIds` prop (as `Set<number>`)                          
+- **Lesson row:** If bookmarked, show filled `Bookmark` icon (`size-3.5         
+text-amber-500`) at the far right of the lesson link (after title)              
+- **Module header:** If any lesson in the module is bookmarked (check against   
+the Set), show `Bookmark` icon (`size-3.5 text-amber-500`) inline after the     
+module title text, before the chevron or after it                               
+                                                                                
+## 4. Route Changes — Course Detail (`courses.$slug.tsx`)                       
+                                                                                
+**Loader** (inside `if (enrolled)` block, ~line 87):                            
+                                                                                
+- Call `getBookmarkedLessonIds(currentUserId, course.id)` → return as           
+`bookmarkedLessonIds: number[]`                                                 
+                                                                                
+**No action changes needed** — toggling only happens on the lesson page.        
+                                                                                
+**CourseContent component** (~line 598):                                        
+                                                                                
+- Accept `bookmarkedLessonIds` prop                                             
+- **Lesson row** (enrolled view, ~line 681): If bookmarked, show filled         
+`Bookmark` icon (`size-4 text-amber-500`) at far right, after duration          
+- **Module CardHeader** (~line 631): If any lesson in the module is bookmarked, 
+ show `Bookmark` icon (`size-3.5 text-amber-500`) inline near the module title  
+                                                                                
+## Files to Modify/Create                                                       
+                                                                                
+| File                                             | Action                     
+                                      |                                         
+| ------------------------------------------------ |                            
+--------------------------------------------------------------- |               
+| `app/db/schema.ts`                               | Add `lessonBookmarks`      
+table                                     |                                     
+| `app/services/bookmarkService.ts`                | **New** — toggle, check,   
+batch query                            |                                        
+| `app/routes/courses.$slug.lessons.$lessonId.tsx` | Loader + action + metadata 
+ bookmark button + sidebar indicators |                                         
+| `app/routes/courses.$slug.tsx`                   | Loader + CourseContent     
+bookmark indicators                      |                                      
+                                                                                
+## Verification                                                                 
+                                                                                
+1. Run `pnpm drizzle-kit generate` to create migration, then `pnpm drizzle-kit  
+migrate` to apply                                                               
+2. Log in as an enrolled student, navigate to a lesson                          
+3. Verify bookmark button appears in the metadata row (outline state)           
+4. Click to bookmark — icon fills amber, page revalidates                       
+5. Go back to course detail page — bookmarked lesson shows filled bookmark icon 
+ at far right                                                                   
+6. Collapse the module — bookmark icon appears on module header                 
+7. Open curriculum sidebar on another lesson — same bookmark indicators visible 
+8. Return to bookmarked lesson, click to unbookmark — icon reverts everywhere   
+9. Verify non-enrolled users don't see any bookmark UI                          
+
+● Let me read the relevant files to understand the current state before
+  implementing.
+
+● Explore(Explore codebase for bookmark implementation)
+  ⎿  Done (8 tool uses · 30.3k tokens · 19s)
+  (ctrl+o to expand)
+
+  Read 2 files (ctrl+o to expand)
+
+● Now let me read the route files in full detail.
+
+  Read 2 files (ctrl+o to expand)
+
+● Now let me read the lesson route file in sections.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now I have a complete picture. Let me implement all the changes in parallel.
+
+● Update(app/db/schema.ts)
+  ⎿  Added 13 lines
+      284      .notNull()
+      285      .$defaultFn(() => new Date().toISOString()),
+      286  });
+      287 +                                                              
+      288 +export const lessonBookmarks = sqliteTable("lesson_bookmarks",
+          + {                                                            
+      289 +  id: integer("id").primaryKey({ autoIncrement: true }),      
+      290 +  userId: integer("user_id")                                  
+      291 +    .notNull()                                                
+      292 +    .references(() => users.id),                              
+      293 +  lessonId: integer("lesson_id")                              
+      294 +    .notNull()                                                
+      295 +    .references(() => lessons.id),                            
+      296 +  createdAt: text("created_at")                               
+      297 +    .notNull()                                                
+      298 +    .$defaultFn(() => new Date().toISOString()),              
+      299 +});                                                           
+
+● Now create the bookmark service:
+
+● Write(app/services/bookmarkService.ts)
+  ⎿  Wrote 61 lines to app/services/bookmarkService.ts
+       1 import { eq, and } from "drizzle-orm";
+       2 import { db } from "~/db";
+       3 import { lessonBookmarks, lessons, modules } from "~/db/schema";
+       4 
+       5 export function isLessonBookmarked(userId: number, lessonId: num
+         ber): boolean {
+       6   const result = db
+       7     .select({ id: lessonBookmarks.id })
+       8     .from(lessonBookmarks)
+       9     .where(
+      10       and(
+     … +51 lines (ctrl+o to expand)
+
+● Now run the migration generation:
+
+● Bash(pnpm drizzle-kit generate 2>&1)
+  ⎿  No config path provided, using default 'drizzle.config.ts'
+     Reading config file '/home/jhon_corzo/ClaudeCourse/cohort-003-project/
+     drizzle.config.ts'
+     … +20 lines (ctrl+o to expand)
+
+● Bash(pnpm drizzle-kit migrate 2>&1)
+  ⎿  No config path provided, using default 'drizzle.config.ts'
+     Reading config file '/home/jhon_corzo/ClaudeCourse/cohort-003-project/
+     drizzle.config.ts'
+     [⣷] applying migrations...[✓] migrations applied successfully!
+
+● Migration applied. Now update the lesson route — loader, action, and UI:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 5 lines
+      32    createComment,
+      33    deleteComment,
+      34  } from "~/services/commentService";
+      35 +import {                                                       
+      36 +  isLessonBookmarked,                                          
+      37 +  toggleBookmark,                                              
+      38 +  getBookmarkedLessonIds,                                      
+      39 +} from "~/services/bookmarkService";                           
+      40  import { getUserById } from "~/services/userService";
+      41  import { LessonProgressStatus, UserRole } from "~/db/schema";
+      42  import { Button } from "~/components/ui/button";
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)  ⎿  Added 1 line
+      43  import { Card, CardContent } from "~/components/ui/card";
+      44  import {
+      45    AlertTriangle,
+      46 +  Bookmark,                                                    
+      47    CheckCircle2,
+      48    ChevronDown,
+      49    ChevronLeft,
+
+● Now update the loader to include bookmark data:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 4 lines
+      171          lessonProgressMap[record.lessonId] = record.status;
+      172        }
+      173  
+      174 +      // Get bookmark state                                   
+      175 +      isBookmarked = isLessonBookmarked(currentUserId, lessonI
+          +d);                                                           
+      176 +      bookmarkedLessonIds = getBookmarkedLessonIds(currentUser
+          +Id, course.id);                                               
+      177 +                                                              
+      178        // Get video watch state for resume and progress display
+      179        if (lesson.videoUrl) {
+      180          lastWatchPosition = getLastWatchPosition(currentUserId
+           , lessonId);
+
+● Now I need to declare those variables before the if (currentUserId) block:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 2 lines
+      152    let lastWatchPosition = 0;
+      153    let watchProgress = 0;
+      154    let lessonProgressMap: Record<number, string> = {};
+      155 +  let isBookmarked = false;                                   
+      156 +  let bookmarkedLessonIds: number[] = [];                     
+      157  
+      158    if (currentUserId) {
+      159      enrolled = isUserEnrolled(currentUserId, course.id);
+
+● Now add the bookmark fields to the return object in the loader:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 2 lines
+      301      pppBlocked,
+      302      pppBlockedCountry,
+      303      pppPurchaseCountry,
+      304 +    isBookmarked,                                             
+      305 +    bookmarkedLessonIds,                                      
+      306      comments: getCommentsForLesson(lessonId),
+      307      currentUserRole: currentUserId
+      308        ? (getUserById(currentUserId)?.role ?? null)
+
+● Now add the toggle-bookmark intent to the action handler:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 9 lines
+      332      return { success: true };
+      333    }
+      334  
+      335 +  if (intent === "toggle-bookmark") {                         
+      336 +    const enrolled = isUserEnrolled(currentUserId, course.id);
+      337 +    if (!enrolled) {                                          
+      338 +      throw data("You must be enrolled to bookmark lessons", {
+          + status: 403 });                                              
+      339 +    }                                                         
+      340 +    const result = toggleBookmark(currentUserId, lessonId);   
+      341 +    return { success: true, bookmarked: result.bookmarked };  
+      342 +  }                                                           
+      343 +                                                              
+      344    if (intent === "submit-quiz") {
+      345      const quizId = Number(formData.get("quizId"));
+      346      if (isNaN(quizId)) {
+
+● Now update the LessonViewer component to destructure the new data and add the
+  bookmark fetcher:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 8 lines
+      461      pppBlocked,
+      462      pppBlockedCountry,
+      463      pppPurchaseCountry,
+      464 +    isBookmarked,                                             
+      465 +    bookmarkedLessonIds,                                      
+      466      comments,
+      467      currentUserRole,
+      468      courseInstructorId,
+     ...
+      470    const [autoplay, toggleAutoplay] = useAutoplay();
+      471    const fetcher = useFetcher({ key: `mark-complete-${lesson.id
+           }` });
+      472    const quizFetcher = useFetcher({ key: `quiz-${lesson.id}` })
+           ;
+      473 +  const bookmarkFetcher = useFetcher({ key: `bookmark-${lesson
+          +.id}` });                                                     
+      474 +                                                              
+      475 +  const optimisticBookmarked =                                
+      476 +    bookmarkFetcher.formData?.get("intent") === "toggle-bookma
+          +rk"                                                           
+      477 +      ? !isBookmarked                                         
+      478 +      : isBookmarked;                                         
+      479    const navigate = useNavigate();
+      480  
+      481    const isMarking =
+
+● Now add the bookmark button to the metadata row in the lesson page UI:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 15 lines
+      592                  </Button>
+      593                </a>
+      594              )}
+      595 +            {enrolled && currentUserId && (                   
+      596 +              <bookmarkFetcher.Form method="post">            
+      597 +                <input type="hidden" name="intent" value="togg
+          +le-bookmark" />                                               
+      598 +                <Button variant="outline" size="sm" type="subm
+          +it">                                                          
+      599 +                  <Bookmark                                   
+      600 +                    className={cn(                            
+      601 +                      "size-4",                               
+      602 +                      optimisticBookmarked                    
+      603 +                        ? "fill-amber-500 text-amber-500"     
+      604 +                        : "text-muted-foreground"             
+      605 +                    )}                                        
+      606 +                  />                                          
+      607 +                </Button>                                     
+      608 +              </bookmarkFetcher.Form>                         
+      609 +            )}                                                
+      610            </div>
+      611  
+      612            {/* YouTube Video */}
+
+● Now update the CurriculumSidebar call to pass bookmarkedLessonIds:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 1 line
+      544          currentLessonId={lesson.id}
+      545          lessonProgressMap={lessonProgressMap}
+      546          enrolled={enrolled}
+      547 +        bookmarkedLessonIds={new Set(bookmarkedLessonIds)}    
+      548        />
+      549  
+      550        <div className="flex-1 p-6 lg:p-8">
+
+● Now update the CurriculumSidebar component signature and add bookmark
+  indicators:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 2 lines
+      768    currentLessonId,
+      769    lessonProgressMap,
+      770    enrolled,
+      771 +  bookmarkedLessonIds,                                        
+      772  }: {
+      773    course: { id: number; title: string; slug: string };
+      774    curriculum: Array<{
+     ...
+      779    currentLessonId: number;
+      780    lessonProgressMap: Record<number, string>;
+      781    enrolled: boolean;
+      782 +  bookmarkedLessonIds: Set<number>;                           
+      783  }) {
+      784    // Find which module the current lesson belongs to
+      785    const currentModuleId = curriculum.find((m) =>
+
+● Now add bookmark indicators to the module header and lesson rows in the
+  sidebar:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 22 lines, removed 12 lines
+      823  
+      824              return (
+      825                <div key={mod.id} className="mb-1">
+      826 -                <button                                       
+      827 -                  onClick={() => toggleModule(mod.id)}        
+      828 -                  className="flex w-full items-center gap-2 ro
+          -unded-md px-3 py-2 text-sm font-medium text-foreground/80 hove
+          -r:bg-muted"                                                   
+      829 -                >                                             
+      830 -                  <ChevronDown                                
+      831 -                    className={cn(                            
+      832 -                      "size-4 shrink-0 transition-transform", 
+      833 -                      !isExpanded && "-rotate-90"             
+      834 -                    )}                                        
+      835 -                  />                                          
+      836 -                  <span className="flex-1 text-left">{mod.titl
+          -e}</span>                                                     
+      837 -                </button>                                     
+      826 +                {(() => {                                     
+      827 +                  const hasBookmark = mod.lessons.some((l) => 
+      828 +                    bookmarkedLessonIds.has(l.id)             
+      829 +                  );                                          
+      830 +                  return (                                    
+      831 +                    <button                                   
+      832 +                      onClick={() => toggleModule(mod.id)}    
+      833 +                      className="flex w-full items-center gap-
+          +2 rounded-md px-3 py-2 text-sm font-medium text-foreground/80 
+          +hover:bg-muted"                                               
+      834 +                    >                                         
+      835 +                      <ChevronDown                            
+      836 +                        className={cn(                        
+      837 +                          "size-4 shrink-0 transition-transfor
+          +m",                                                           
+      838 +                          !isExpanded && "-rotate-90"         
+      839 +                        )}                                    
+      840 +                      />                                      
+      841 +                      <span className="flex-1 text-left">{mod.
+          +title}</span>                                                 
+      842 +                      {hasBookmark && (                       
+      843 +                        <Bookmark className="size-3.5 shrink-0
+          + fill-amber-500 text-amber-500" />                            
+      844 +                      )}                                      
+      845 +                    </button>                                 
+      846 +                  );                                          
+      847 +                })()}                                         
+      848  
+      849                  {isExpanded && (
+      850                    <ul className="ml-4 space-y-0.5 py-1">
+
+● Now add the bookmark indicator to lesson rows in the sidebar:
+
+● Update(app/routes/courses.$slug.lessons.$lessonId.tsx)
+  ⎿  Added 4 lines, removed 1 line
+      878                              ) : (
+      879                                <Circle className="size-3.5 shri
+           nk-0" />
+      880                              )}
+      881 -                            <span className="truncate">{l.titl
+          -e}</span>                                                     
+      881 +                            <span className="flex-1 truncate">
+          +{l.title}</span>                                              
+      882 +                            {bookmarkedLessonIds.has(l.id) && 
+          +(                                                             
+      883 +                              <Bookmark className="size-3.5 sh
+          +rink-0 fill-amber-500 text-amber-500" />                      
+      884 +                            )}                                
+      885                            </Link>
+      886                          </li>
+      887                        );
+
+● Now update courses.$slug.tsx — loader and CourseContent component:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 1 line
+      18    getUserRating,
+      19    getAverageRating,
+      20  } from "~/services/ratingService";
+      21 +import { getBookmarkedLessonIds } from "~/services/bookmarkServ
+         +ice";                                                          
+      22  import { getCurrentUserId } from "~/lib/session";
+      23  import { LessonProgressStatus } from "~/db/schema";
+      24  import { Card, CardContent, CardHeader } from "~/components/ui/
+          card";
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 1 line
+      33  } from "~/components/ui/tabs";
+      34  import {
+      35    AlertTriangle,
+      36 +  Bookmark,                                                    
+      37    BookOpen,
+      38    CheckCircle2,
+      39    Circle,
+
+● Now update the loader to fetch bookmarks for enrolled users:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 2 lines
+      191    let nextLessonId: number | null = null;
+      192    let canRate = false;
+      193    let userRating: number | null = null;
+      194 +  let bookmarkedLessonIds: number[] = [];                     
+      195  
+      196    if (currentUserId) {
+      197      enrolled = isUserEnrolled(currentUserId, course.id);
+      198  
+      199      if (enrolled) {
+      200        progress = calculateProgress(currentUserId, course.id, f
+           alse, false);
+      201 +      bookmarkedLessonIds = getBookmarkedLessonIds(currentUser
+          +Id, course.id);                                               
+      202  
+      203        const progressRecords = getLessonProgressForCourse(
+      204          currentUserId,
+
+● Update(app/routes/courses.$slug.tsx)  ⎿  Added 1 line
+      245      canRate,
+      246      userRating,
+      247      averageRating,
+      248 +    bookmarkedLessonIds,                                      
+      249    };
+      250  }
+      251  
+
+● Now destructure bookmarkedLessonIds in the component and pass it to
+  CourseContent:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 1 line
+      317      canRate,
+      318      userRating,
+      319      averageRating,
+      320 +    bookmarkedLessonIds,                                      
+      321    } = loaderData;
+      322    const isInstructor = currentUserId === course.instructorId;
+      323    const [searchParams, setSearchParams] = useSearchParams();
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 1 line
+      501                enrolled={enrolled}
+      502                isInstructor={isInstructor}
+      503                lessonProgressMap={lessonProgressMap}
+      504 +              bookmarkedLessonIds={new Set(bookmarkedLessonIds
+          +)}                                                            
+      505              />
+      506            </div>
+      507          </div>
+
+● Now update the CourseContent component signature and add bookmark indicators:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 2 lines
+      608    enrolled,
+      609    isInstructor,
+      610    lessonProgressMap,
+      611 +  bookmarkedLessonIds,                                        
+      612  }: {
+      613    course: {
+      614      id: number;
+     ...
+      626    enrolled: boolean;
+      627    isInstructor: boolean;
+      628    lessonProgressMap: Record<number, string>;
+      629 +  bookmarkedLessonIds: Set<number>;                           
+      630  }) {
+      631    return (
+      632      <div>
+
+● Now add bookmark indicators to module headers and lesson rows in
+  CourseContent:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 18 lines, removed 9 lines
+      637          </p>
+      638        ) : (
+      639          <div className="space-y-4">
+      640 -          {course.modules.map((mod) => (                      
+      640 +          {course.modules.map((mod) => {                      
+      641 +            const moduleHasBookmark = mod.lessons.some((l) => 
+      642 +              bookmarkedLessonIds.has(l.id)                   
+      643 +            );                                                
+      644 +            return (                                          
+      645              <Card key={mod.id}>
+      646                <CardHeader>
+      643 -                <h3 className="font-semibold">                
+      644 -                  <Link                                       
+      645 -                    to={`/courses/${course.slug}/${mod.id}`}  
+      646 -                    className="hover:underline"               
+      647 -                  >                                           
+      648 -                    {mod.title}                               
+      649 -                  </Link>                                     
+      650 -                </h3>                                         
+      647 +                <div className="flex items-center gap-2">     
+      648 +                  <h3 className="flex-1 font-semibold">       
+      649 +                    <Link                                     
+      650 +                      to={`/courses/${course.slug}/${mod.id}`}
+      651 +                      className="hover:underline"             
+      652 +                    >                                         
+      653 +                      {mod.title}                             
+      654 +                    </Link>                                   
+      655 +                  </h3>                                       
+      656 +                  {moduleHasBookmark && (                     
+      657 +                    <Bookmark className="size-3.5 shrink-0 fil
+          +l-amber-500 text-amber-500" />                                
+      658 +                  )}                                          
+      659 +                </div>                                        
+      660                  <p className="text-sm text-muted-foreground">
+      661                    {mod.lessons.length} lessons
+      662                  </p>
+
+● Now I need to close the IIFE correctly — the map currently closes with )) but
+  I changed it to an arrow function body. Let me check and fix the closing:
+
+  Read 1 file (ctrl+o to expand)
+
+● The map callback closing needs to be fixed — I changed from arrow function
+  implicit return to block body:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 2 lines, removed 1 line
+      745                  </ul>
+      746                </CardContent>
+      747              </Card>
+      748 -          ))}                                                 
+      748 +          );                                                  
+      749 +          })}                                                 
+      750          </div>
+      751        )}
+      752      </div>
+
+● Now add the bookmark indicator to the enrolled lesson rows in CourseContent:
+
+● Update(app/routes/courses.$slug.tsx)
+  ⎿  Added 3 lines
+      721                                  )}
+      722                                </span>
+      723                              )}
+      724 +                            {bookmarkedLessonIds.has(lesson.id
+          +) && (                                                        
+      725 +                              <Bookmark className="size-4 shri
+          +nk-0 fill-amber-500 text-amber-500" />                        
+      726 +                            )}                                
+      727                            </Link>
+      728                          ) : (
+      729                            <div className="flex items-center ga
+           p-3 px-3 py-2 text-sm">
+
+● Now let's do a TypeScript check to verify everything compiles:
+
+● Bash(pnpm tsc --noEmit 2>&1 | head -60)
+  ⎿  (No output)
+
+● Clean TypeScript. The Lesson Bookmarks feature is fully implemented:
+
+  What was done:
+
+  1. Schema — Added lessonBookmarks table to app/db/schema.ts with userId,
+  lessonId, createdAt fields and FK references.
+  2. Migration — Generated and applied drizzle/0005_zippy_black_panther.sql.
+  3. Service (app/services/bookmarkService.ts) — Three functions:
+    - isLessonBookmarked(userId, lessonId) — boolean check
+    - toggleBookmark(userId, lessonId) — insert/delete, returns { bookmarked: 
+  boolean }
+    - getBookmarkedLessonIds(userId, courseId) — batch query for all bookmarked
+  lessons in a course
+  4. Lesson route (courses.$slug.lessons.$lessonId.tsx):
+    - Loader fetches isBookmarked + bookmarkedLessonIds for enrolled users
+    - Action handles toggle-bookmark intent
+    - Metadata row shows a Bookmark button (amber filled when bookmarked,
+  outline muted otherwise) with optimistic UI
+    - CurriculumSidebar shows filled amber bookmark icons on lesson rows and
+  module headers when any child is bookmarked
+  5. Course detail route (courses.$slug.tsx):
+    - Loader fetches bookmarkedLessonIds for enrolled users
+    - CourseContent shows filled amber bookmark icons on lesson rows (enrolled
+  view) and module CardHeader titles
+
+✻ Cooked for 4m 1s
